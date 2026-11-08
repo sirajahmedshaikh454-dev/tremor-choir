@@ -10,7 +10,8 @@ const allowed = new Set(Object.keys(types));
 const port = Number(process.env.PORT) || 5173;
 
 createServer(async (req, res) => {
-  const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  let path;
+  try { path = decodeURIComponent(new URL(req.url, 'http://x').pathname); } catch { res.writeHead(400).end('bad request'); return; }
   const file = normalize(join(root, path === '/' ? 'index.html' : path));
   // Only serve files inside the project, with known extensions, never dotfiles.
   if (!file.startsWith(root) || !allowed.has(extname(file)) || file.slice(root.length).split(sep).some(p => p.startsWith('.'))) {

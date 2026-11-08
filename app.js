@@ -347,4 +347,7 @@ requestAnimationFrame(frame);
 load().then(() => {
   $('go').disabled = false;
   $('goLabel').textContent = 'Listen';
+}, () => {
+  $('goLabel').textContent = 'The planet is silent';
+  $('src').textContent = 'could not load USGS feed or sample.json';
 });
