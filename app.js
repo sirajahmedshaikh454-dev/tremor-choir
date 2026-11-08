@@ -36,13 +36,13 @@ function initAudio() {
   const comp = ctx.createDynamicsCompressor();
   comp.threshold.value = -18; comp.ratio.value = 6;
   const rev = ctx.createConvolver(); rev.buffer = impulse(4);
-  const wet = ctx.createGain(); wet.gain.value = 0.55;
+  wet = ctx.createGain(); wet.gain.value = abyss ? 0.95 : 0.55;
   master.connect(comp); master.connect(rev).connect(wet).connect(comp);
   analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
   comp.connect(analyser).connect(ctx.destination);
   wave = new Float32Array(analyser.fftSize);
 }
-let analyser, wave;
+let analyser, wave, wet, abyss = false;
 function impulse(sec) {
   const len = ctx.sampleRate * sec, b = ctx.createBuffer(2, len, ctx.sampleRate);
   for (let c = 0; c < 2; c++) { const d = b.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.8); }
@@ -50,9 +50,11 @@ function impulse(sec) {
 }
 // One voice: a buzzing sawtooth "vocal fold" shaped by three vowel formants.
 function sing(q, scale = 1) {
-  if (!ctx || active >= MAX_VOICES) return;
+  if (!ctx || active >= MAX_VOICES || (abyss && q.depth < 300)) return;
   active++;
-  const v = voiceFor(q), t = ctx.currentTime, end = t + v.dur;
+  const v = voiceFor(q), t = ctx.currentTime;
+  if (abyss) { v.freq /= 2; v.dur *= 1.8; v.gain = Math.min(v.gain * 1.6, 0.6); }
+  const end = t + v.dur;
   const osc = ctx.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = v.freq; osc.detune.value = (Math.random() - 0.5) * 16;
   const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.frequency.value = 4.2 + Math.random() * 1.6; lg.gain.value = v.freq * 0.009;
   lfo.connect(lg).connect(osc.frequency);
@@ -184,7 +186,7 @@ function draw(now) {
     const age = Math.max(0, (now - q.lit) / 1000), front = s.z > 0;
     const x = cx + s.x * R, y = cy - s.y * R, col = DEPTH_COLORS[q.cls];
     const size = 0.8 + Math.max(q.mag - 2, 0) * 0.7;
-    g.globalAlpha = front ? 0.85 : 0.06;
+    g.globalAlpha = (front ? 0.85 : 0.06) * (abyss && q.cls < 2 ? 0.12 : 1);
     g.fillStyle = col;
     g.beginPath(); g.arc(x, y, size, 0, Math.PI * 2); g.fill();
     const life = 0.6 + q.mag * 0.5;
@@ -316,7 +318,17 @@ function pluck(px, py) {
   lastLog = 0; logLine(best, true);
 }
 
+// ???
+let typed = '';
+function toggleAbyss() {
+  abyss = !abyss;
+  document.body.classList.toggle('abyss', abyss);
+  document.querySelector('h1 em').textContent = abyss ? 'Abyss' : 'Choir';
+  if (wet) wet.gain.setTargetAtTime(abyss ? 0.95 : 0.55, ctx.currentTime, 0.5);
+}
+
 addEventListener('keydown', e => {
+  if (e.key.length === 1) { typed = (typed + e.key.toLowerCase()).slice(-5); if (typed === 'abyss') { typed = ''; toggleAbyss(); } }
   if (e.target.closest?.('button') && e.code === 'Space') return; // let the button handle its own Space
   if (e.code === 'Space' && quakes.length && !live && $('go').classList.contains('gone')) { playing = !playing; paused = !playing; if (playing) ctx.resume(); e.preventDefault(); }
   else if (e.key === 'r' || e.key === 'R') { if (quakes.length) { if (live) toggleLive(); start(); } }
