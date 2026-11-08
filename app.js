@@ -38,8 +38,11 @@ function initAudio() {
   const rev = ctx.createConvolver(); rev.buffer = impulse(4);
   const wet = ctx.createGain(); wet.gain.value = 0.55;
   master.connect(comp); master.connect(rev).connect(wet).connect(comp);
-  comp.connect(ctx.destination);
+  analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
+  comp.connect(analyser).connect(ctx.destination);
+  wave = new Float32Array(analyser.fftSize);
 }
+let analyser, wave;
 function impulse(sec) {
   const len = ctx.sampleRate * sec, b = ctx.createBuffer(2, len, ctx.sampleRate);
   for (let c = 0; c < 2; c++) { const d = b.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.8); }
@@ -80,6 +83,7 @@ function tick(dt) {
     q.lit = performance.now(); sung++;
     sing(q);
     logLine(q);
+    if (q.mag >= 5.5) pendingMark = 'M' + q.mag.toFixed(1);
   }
   $('count').textContent = sung;
   $('clock').textContent = fmtDate(t0 + Math.min(elapsed / REPLAY_SECONDS, 1) * (t1 - t0));
@@ -125,17 +129,16 @@ function resize() {
 }
 
 function draw(now) {
-  const cx = W / 2, cy = H * (W < 640 ? 0.46 : 0.5), R = Math.min(W, H) * (W < 640 ? 0.42 : 0.34);
+  const cx = W / 2, cy = (H - 130) / 2 + 10, R = Math.min(W * (W < 640 ? 0.44 : 0.34), (H - 150) * 0.42);
   g.fillStyle = '#0d0c0a'; g.fillRect(0, 0, W, H);
 
   // faint limb
   g.strokeStyle = 'rgba(236,228,210,0.10)'; g.lineWidth = 1;
   g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.stroke();
 
-  g.fillStyle = 'rgba(236,228,210,0.16)';
   for (const p of ghosts) {
     const s = project(p.lon, p.lat, rot, tilt);
-    if (s.z > 0) g.fillRect(cx + s.x * R, cy - s.y * R, 1, 1);
+    if (s.z > 0) { g.fillStyle = `rgba(236,228,210,${0.08 + s.z * 0.2})`; g.fillRect(cx + s.x * R, cy - s.y * R, 1.2, 1.2); }
   }
 
   for (const q of quakes) {
@@ -144,7 +147,7 @@ function draw(now) {
     const age = (now - q.lit) / 1000, front = s.z > 0;
     const x = cx + s.x * R, y = cy - s.y * R, col = DEPTH_COLORS[q.cls];
     const size = 0.8 + Math.max(q.mag - 2, 0) * 0.7;
-    g.globalAlpha = front ? 0.85 : 0.12;
+    g.globalAlpha = front ? 0.85 : 0.06;
     g.fillStyle = col;
     g.beginPath(); g.arc(x, y, size, 0, Math.PI * 2); g.fill();
     const life = 0.6 + q.mag * 0.5;
@@ -155,12 +158,52 @@ function draw(now) {
     }
   }
   g.globalAlpha = 1;
+  drawDrum();
+}
+
+// ---------- seismograph drum: the choir's own waveform, scrolling like paper ----------
+const trace = [];
+let lastDay = '';
+function sampleTrace() {
+  if (!analyser || !playing) return;
+  analyser.getFloatTimeDomainData(wave);
+  let lo = 0, hi = 0;
+  for (const s of wave) { if (s < lo) lo = s; if (s > hi) hi = s; }
+  const day = fmtDate(t0 + Math.min(elapsed / REPLAY_SECONDS, 1) * (t1 - t0)).slice(0, 6);
+  trace.push({ lo, hi, day: day !== lastDay ? day : null, mark: pendingMark });
+  lastDay = day; pendingMark = null;
+  if (trace.length > 4000) trace.splice(0, trace.length - 4000);
+}
+let pendingMark = null;
+
+function drawDrum() {
+  const top = H - 112, h = 72, mid = top + h / 2, x0 = 16, x1 = W - 16, px = 1.5;
+  g.strokeStyle = 'rgba(236,228,210,0.08)'; g.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) { g.beginPath(); g.moveTo(x0, top + i * h / 4 + .5); g.lineTo(x1, top + i * h / 4 + .5); g.stroke(); }
+  g.font = '10px "IBM Plex Mono", monospace';
+  const n = Math.min(trace.length, Math.floor((x1 - x0) / px));
+  g.strokeStyle = '#ece4d2'; g.beginPath();
+  for (let i = 0; i < n; i++) {
+    const s = trace[trace.length - 1 - i], x = x1 - i * px;
+    g.moveTo(x, mid - Math.min(s.hi * 1.15, 1) * h / 2);
+    g.lineTo(x, mid - Math.max(s.lo * 1.15, -1) * h / 2);
+  }
+  g.stroke();
+  let labelX = Infinity; // drawing right-to-left; skip labels that would collide
+  for (let i = 0; i < n; i++) {
+    const s = trace[trace.length - 1 - i], x = x1 - i * px;
+    if (s.mark && labelX - x < 42) { g.fillStyle = '#ff4a1c'; g.fillRect(x, top - 4, 1, h + 4); continue; }
+    if (s.mark) labelX = x;
+    if (s.day) { g.fillStyle = 'rgba(236,228,210,0.35)'; g.fillRect(x, top + h + 4, 1, 6); g.fillText(s.day, x + 4, top + h + 14); }
+    if (s.mark) { g.fillStyle = '#ff4a1c'; g.fillRect(x, top - 8, 1, h + 8); g.fillText(s.mark, x + 4, top - 2); }
+  }
 }
 
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.1); last = now;
   rot += dt * 0.06;
   tick(dt);
+  sampleTrace();
   draw(now);
   requestAnimationFrame(frame);
 }
