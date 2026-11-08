@@ -107,7 +107,7 @@ function tick(dt) {
   }
   $('count').textContent = sung;
   $('clock').textContent = fmtDate(t0 + Math.min(elapsed / REPLAY_SECONDS, 1) * (t1 - t0));
-  if (next >= quakes.length && elapsed > REPLAY_SECONDS + 3) finish();
+  if (elapsed > REPLAY_SECONDS + 3) finish(); // every replay quake has at <= REPLAY_SECONDS; live ones are Infinity
 }
 
 const log = $('log');
@@ -126,7 +126,7 @@ function logLine(q, force = false) {
 
 function finish() {
   playing = false;
-  $('coda').classList.add('on');
+  $('coda').classList.add('on'); document.body.classList.add('ended');
   const go = $('go'); go.disabled = false; go.classList.remove('gone'); $('goLabel').textContent = 'Sing it again';
 }
 
@@ -136,7 +136,7 @@ function start() {
   quakes = quakes.filter(q => q.at !== Infinity); // drop quakes added by live mode
   quakes.forEach(q => q.lit = 0);
   elapsed = 0; next = 0; sung = 0; playing = true; paused = false;
-  $('coda').classList.remove('on');
+  $('coda').classList.remove('on'); document.body.classList.remove('ended');
   const go = $('go'); go.classList.add('gone'); go.disabled = true; go.blur();
   trace.length = 0; lastDay = '';
 }

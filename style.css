@@ -66,3 +66,8 @@ h1 em { color: var(--shallow); }
 @media (max-width: 640px) { .keys { display: none; } }
 body.abyss h1 em { color: var(--deep); }
 body.abyss .sub { color: var(--deep); }
+.sub { transition: opacity 1.5s; }
+@media (max-width: 640px) {
+  .coda { bottom: auto; top: 118px; left: 16px; translate: none; text-align: left; width: calc(100% - 32px); }
+  body.ended .sub { opacity: 0; }
+}
