@@ -131,6 +131,7 @@ function finish() {
 function start() {
   if (!ctx) initAudio();
   ctx.resume();
+  quakes = quakes.filter(q => q.at !== Infinity); // drop quakes added by live mode
   quakes.forEach(q => q.lit = 0);
   elapsed = 0; next = 0; sung = 0; playing = true; paused = false;
   $('coda').classList.remove('on');
@@ -201,12 +202,12 @@ function draw(now) {
 const trace = [];
 let lastDay = '';
 function sampleTrace() {
-  if (!analyser || !playing) return;
+  if (!analyser || !(playing || live)) return;
   analyser.getFloatTimeDomainData(wave);
   let lo = 0, hi = 0;
   for (const s of wave) { if (s < lo) lo = s; if (s > hi) hi = s; }
   const day = fmtDate(t0 + Math.min(elapsed / REPLAY_SECONDS, 1) * (t1 - t0)).slice(0, 6);
-  trace.push({ lo, hi, day: day !== lastDay ? day : null, mark: pendingMark });
+  trace.push({ lo, hi, day: playing && day !== lastDay ? day : null, mark: pendingMark });
   lastDay = day; pendingMark = null;
   if (trace.length > 4000) trace.splice(0, trace.length - 4000);
 }
@@ -242,6 +243,43 @@ function frame(now) {
   sampleTrace();
   draw(now);
   requestAnimationFrame(frame);
+}
+
+// ---------- live mode: the planet, in real time ----------
+const LIVE_FEED = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson';
+let live = null;
+const seen = new Set();
+async function pollLive(first) {
+  try {
+    const r = await fetch(LIVE_FEED, { cache: 'no-store' });
+    if (!r.ok) throw new Error(r.status);
+    const feats = (await r.json()).features ?? [];
+    const fresh = feats.filter(f => f.id && !seen.has(f.id));
+    fresh.forEach(f => seen.add(f.id));
+    // first poll: sing only the latest quake so you hear something right away
+    const toSing = normalize({ features: first === true ? fresh.slice(0, 1) : fresh });
+    toSing.forEach((q, i) => setTimeout(() => {
+      if (!live) return;
+      q.cls = depthClass(q.depth); q.at = Infinity; q.lit = performance.now();
+      quakes.push(q); sing(q, 1.3); if (q.mag >= 6) boom(q); logLine(q, true);
+      pendingMark = 'M' + q.mag.toFixed(1);
+    }, i * 900));
+    if (live) $('src').textContent = `LIVE · ${feats.length} quakes this hour · checks every minute`;
+  } catch {
+    if (live) $('src').textContent = 'LIVE · USGS unreachable, retrying…';
+  }
+}
+function toggleLive() {
+  $('liveBtn').setAttribute('aria-pressed', String(!live));
+  if (live) { clearInterval(live); live = null; $('src').textContent = 'live mode off · press R to replay'; return; }
+  if (!ctx) initAudio();
+  ctx.resume();
+  playing = false; paused = false;
+  const go = $('go'); go.classList.add('gone'); go.disabled = true; go.blur();
+  $('coda').classList.remove('on');
+  $('clock').textContent = 'NOW';
+  live = setInterval(pollLive, 60_000);
+  pollLive(true);
 }
 
 // ---------- touch the planet ----------
@@ -280,14 +318,16 @@ function pluck(px, py) {
 
 addEventListener('keydown', e => {
   if (e.target.closest?.('button') && e.code === 'Space') return; // let the button handle its own Space
-  if (e.code === 'Space' && quakes.length && $('go').classList.contains('gone')) { playing = !playing; paused = !playing; if (playing) ctx.resume(); e.preventDefault(); }
-  else if (e.key === 'r' || e.key === 'R') { if (quakes.length) start(); }
+  if (e.code === 'Space' && quakes.length && !live && $('go').classList.contains('gone')) { playing = !playing; paused = !playing; if (playing) ctx.resume(); e.preventDefault(); }
+  else if (e.key === 'r' || e.key === 'R') { if (quakes.length) { if (live) toggleLive(); start(); } }
+  else if (e.key === 'l' || e.key === 'L') { if (quakes.length) toggleLive(); }
   else if (e.key === 'ArrowLeft') rot -= 0.25;
   else if (e.key === 'ArrowRight') rot += 0.25;
   else if (e.key === 'ArrowUp') tilt = Math.max(-1.3, tilt - 0.15);
   else if (e.key === 'ArrowDown') tilt = Math.min(1.3, tilt + 0.15);
 });
 
+$('liveBtn').addEventListener('click', () => { if (quakes.length) toggleLive(); });
 addEventListener('resize', resize);
 $('go').addEventListener('click', start);
 resize();
