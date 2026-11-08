@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tremor Choir</title>
+  <meta name="description" content="The last 30 days of Earth's earthquakes, sung as a choir in 60 seconds.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="globe" aria-label="Rotating globe where each earthquake lights up as it sings"></canvas>
+
+  <header class="title">
+    <h1>Tremor <em>Choir</em></h1>
+    <p class="sub">Thirty days of a restless planet, sung in sixty seconds.</p>
+  </header>
+
+  <aside class="hud" aria-label="Replay status">
+    <div class="clock" id="clock">—</div>
+    <div class="count"><span id="count">0</span> / <span id="total">0</span> voices</div>
+    <div class="src" id="src">loading the planet…</div>
+  </aside>
+
+  <ol class="log" id="log" aria-hidden="true"></ol>
+
+  <div class="legend" aria-hidden="true">
+    <span><i class="d0"></i>shallow &lt;70 km · high</span>
+    <span><i class="d1"></i>intermediate · middle</span>
+    <span><i class="d2"></i>deep &gt;300 km · low</span>
+  </div>
+
+  <button id="go" class="go" disabled>
+    <span class="go-ring"></span>
+    <span class="go-label" id="goLabel">Listening for the planet</span>
+  </button>
+
+  <p class="coda" id="coda">No coastlines were drawn. That outline is the edge of the plates.</p>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "tremor-choir",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The last 30 days of Earth's earthquakes, sung as a choir in 60 seconds.",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test.js"
+  },
+  "license": "MIT"
+}
