@@ -71,8 +71,25 @@ function sing(q, scale = 1) {
   osc.onended = () => { active--; pan.disconnect(); };
 }
 
+// The ground itself: a falling sub-bass thud plus a gravelly noise rumble, for M6+.
+function boom(q) {
+  if (!ctx) return;
+  const t = ctx.currentTime, len = 2.5 + (q.mag - 6) * 1.5;
+  const sub = ctx.createOscillator(), sg = ctx.createGain();
+  sub.frequency.setValueAtTime(64, t); sub.frequency.exponentialRampToValueAtTime(26, t + len);
+  sg.gain.setValueAtTime(0.0001, t); sg.gain.exponentialRampToValueAtTime(0.8, t + 0.04); sg.gain.exponentialRampToValueAtTime(0.0001, t + len);
+  const noise = ctx.createBufferSource(); noise.buffer = impulse(len);
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180;
+  const ng = ctx.createGain(); ng.gain.value = 0.9;
+  sub.connect(sg).connect(master); noise.connect(lp).connect(ng).connect(master);
+  sub.start(t); sub.stop(t + len); noise.start(t);
+  shocks.push({ q, born: performance.now(), len });
+}
+const shocks = [];
+const calm = matchMedia('(prefers-reduced-motion: reduce)');
+
 // ---------- replay ----------
-let playing = false, elapsed = 0, next = 0, sung = 0, rot = -2.2, tilt = 0.38, last = performance.now();
+let paused = false, playing = false, elapsed = 0, next = 0, sung = 0, rot = -2.2, tilt = 0.38, last = performance.now();
 const ghosts = fibSphere(2400);
 
 function tick(dt) {
@@ -84,6 +101,7 @@ function tick(dt) {
     sing(q);
     logLine(q);
     if (q.mag >= 5.5) pendingMark = 'M' + q.mag.toFixed(1);
+    if (q.mag >= 6) boom(q);
   }
   $('count').textContent = sung;
   $('clock').textContent = fmtDate(t0 + Math.min(elapsed / REPLAY_SECONDS, 1) * (t1 - t0));
@@ -92,9 +110,9 @@ function tick(dt) {
 
 const log = $('log');
 let lastLog = 0;
-function logLine(q) {
+function logLine(q, force = false) {
   const now = performance.now();
-  if (q.mag < 4.5 && now - lastLog < 220) return; // keep it readable; big ones always print
+  if (!force && q.mag < 4.5 && now - lastLog < 220) return; // keep it readable; big ones always print
   lastLog = now;
   const li = document.createElement('li');
   li.innerHTML = `<b style="color:${DEPTH_COLORS[q.cls]}">M${q.mag.toFixed(1)}</b> · ${Math.round(q.depth)} km · `;
@@ -107,16 +125,17 @@ function logLine(q) {
 function finish() {
   playing = false;
   $('coda').classList.add('on');
-  const go = $('go'); go.classList.remove('gone'); $('goLabel').textContent = 'Sing it again';
+  const go = $('go'); go.disabled = false; go.classList.remove('gone'); $('goLabel').textContent = 'Sing it again';
 }
 
 function start() {
   if (!ctx) initAudio();
   ctx.resume();
   quakes.forEach(q => q.lit = 0);
-  elapsed = 0; next = 0; sung = 0; playing = true;
+  elapsed = 0; next = 0; sung = 0; playing = true; paused = false;
   $('coda').classList.remove('on');
-  $('go').classList.add('gone');
+  const go = $('go'); go.classList.add('gone'); go.disabled = true; go.blur();
+  trace.length = 0; lastDay = '';
 }
 
 // ---------- drawing ----------
@@ -129,8 +148,25 @@ function resize() {
 }
 
 function draw(now) {
-  const cx = W / 2, cy = (H - 130) / 2 + 10, R = Math.min(W * (W < 640 ? 0.44 : 0.34), (H - 150) * 0.42);
+  let cx = W / 2, cy = (H - 130) / 2 + 10;
+  const R = Math.min(W * (W < 640 ? 0.44 : 0.34), (H - 150) * 0.42);
   g.fillStyle = '#0d0c0a'; g.fillRect(0, 0, W, H);
+
+  // shockwaves: the screen shakes and a ring rolls across the planet
+  let shake = 0;
+  for (let i = shocks.length - 1; i >= 0; i--) {
+    const k = (now - shocks[i].born) / 1000 / shocks[i].len;
+    if (k >= 1) { shocks.splice(i, 1); continue; }
+    shake = Math.max(shake, (1 - k) ** 3 * (shocks[i].q.mag - 5) * 5);
+  }
+  if (!calm.matches && shake > 0.2) { cx += (Math.random() - 0.5) * shake; cy += (Math.random() - 0.5) * shake; }
+  view = { cx, cy, R };
+  for (const { q, born, len } of shocks) {
+    const k = Math.max(0, (now - born) / 1000 / len), s = project(q.lon, q.lat, rot, tilt);
+    g.strokeStyle = '#ff4a1c'; g.globalAlpha = (1 - k) * 0.7; g.lineWidth = 2 * (1 - k) + 0.5;
+    g.beginPath(); g.arc(cx + s.x * R, cy - s.y * R, k * R * 1.6, 0, Math.PI * 2); g.stroke();
+  }
+  g.globalAlpha = 1;
 
   // faint limb
   g.strokeStyle = 'rgba(236,228,210,0.10)'; g.lineWidth = 1;
@@ -144,7 +180,7 @@ function draw(now) {
   for (const q of quakes) {
     if (!q.lit) continue;
     const s = project(q.lon, q.lat, rot, tilt);
-    const age = (now - q.lit) / 1000, front = s.z > 0;
+    const age = Math.max(0, (now - q.lit) / 1000), front = s.z > 0;
     const x = cx + s.x * R, y = cy - s.y * R, col = DEPTH_COLORS[q.cls];
     const size = 0.8 + Math.max(q.mag - 2, 0) * 0.7;
     g.globalAlpha = front ? 0.85 : 0.06;
@@ -201,12 +237,56 @@ function drawDrum() {
 
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.1); last = now;
-  rot += dt * 0.06;
+  if (!drag && !paused) rot += dt * 0.06;
   tick(dt);
   sampleTrace();
   draw(now);
   requestAnimationFrame(frame);
 }
+
+// ---------- touch the planet ----------
+let view = { cx: 0, cy: 0, R: 1 }, drag = null;
+cv.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, moved: 0 }; cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  drag.moved += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY;
+  rot += dx * 0.006; tilt = Math.max(-1.3, Math.min(1.3, tilt + dy * 0.005));
+});
+cv.addEventListener('pointerup', e => {
+  if (drag && drag.moved < 6) pluck(e.clientX, e.clientY);
+  drag = null;
+});
+cv.addEventListener('pointercancel', () => { drag = null; });
+
+// Tap a lit quake to hear it again.
+function pluck(px, py) {
+  let best = null, bd = 18 * 18;
+  for (const q of quakes) {
+    if (!q.lit) continue;
+    const s = project(q.lon, q.lat, rot, tilt);
+    if (s.z <= 0) continue;
+    const d = (view.cx + s.x * view.R - px) ** 2 + (view.cy - s.y * view.R - py) ** 2;
+    if (d < bd) { bd = d; best = q; }
+  }
+  if (!best) return;
+  if (!ctx) initAudio();
+  ctx.resume();
+  best.lit = performance.now();
+  sing(best, 1.4);
+  if (best.mag >= 6) boom(best);
+  lastLog = 0; logLine(best, true);
+}
+
+addEventListener('keydown', e => {
+  if (e.target.closest?.('button') && e.code === 'Space') return; // let the button handle its own Space
+  if (e.code === 'Space' && quakes.length && $('go').classList.contains('gone')) { playing = !playing; paused = !playing; if (playing) ctx.resume(); e.preventDefault(); }
+  else if (e.key === 'r' || e.key === 'R') { if (quakes.length) start(); }
+  else if (e.key === 'ArrowLeft') rot -= 0.25;
+  else if (e.key === 'ArrowRight') rot += 0.25;
+  else if (e.key === 'ArrowUp') tilt = Math.max(-1.3, tilt - 0.15);
+  else if (e.key === 'ArrowDown') tilt = Math.min(1.3, tilt + 0.15);
+});
 
 addEventListener('resize', resize);
 $('go').addEventListener('click', start);
